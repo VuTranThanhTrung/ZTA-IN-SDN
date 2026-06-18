@@ -1,0 +1,27 @@
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Log files
+*.log
+Source Code/Controller/flowmanager/flwmgr.log
+
+# Datasets and large data files (CSV)
+*.csv
+Source Code/Controller/*.csv
+FlowStatsfile.csv
+
+# Temporary/runtime files
+current_filename.txt
+current_label.txt
+Source Code/Controller/PredictFlowStatsfile.csv.save
+
+# LaTeX temporary files
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz
+*.pdf
+!TAILIEU/*.pdf
