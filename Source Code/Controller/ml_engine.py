@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import joblib
 
-DEFAULT_MODEL_FILENAME = "rf_model_multiclass_group_safe.pkl"
+DEFAULT_MODEL_FILENAME = "random_forest_multiclass_zta.pkl"
 
 class MLDetectionEngine:
     """
