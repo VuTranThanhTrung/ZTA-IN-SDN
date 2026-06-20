@@ -45,7 +45,8 @@ class ZTASecurityController(switch.SimpleSwitch13):
 
         # Resolve paths dynamically
         base_dir = os.path.dirname(os.path.abspath(__file__))
-        model_path = os.path.join(base_dir, DEFAULT_MODEL_FILENAME)
+        model_dir = os.path.abspath(os.path.join(base_dir, '../Model'))
+        model_path = os.path.join(model_dir, DEFAULT_MODEL_FILENAME)
         aaa_config = os.path.abspath(os.path.join(base_dir, '../Emulation/aaa_users.json'))
 
         # Initialize modular ZTA components
