@@ -7,7 +7,7 @@ class DynamicPolicyEngine:
     DynamicPolicyEngine manages dynamic trust scores per host and determines
     mitigation actions based on zero-trust policy guidelines.
     """
-    def __init__(self, logger: Any = None) -> None:
+    def __init__(self, logger: Any = None, recovery_step: float = 0.02) -> None:
         """
         Initialize the Dynamic Policy Engine.
 
@@ -17,6 +17,7 @@ class DynamicPolicyEngine:
         self.logger: Any = logger
         self.trust_scores: Dict[str, float] = {}
         self.penalties_count: Dict[str, int] = {}
+        self.recovery_step: float = recovery_step
         self.lock: Lock = Lock()
 
     def update_trust_score(self, ip_address: str, penalty: float) -> float:
@@ -76,7 +77,7 @@ class DynamicPolicyEngine:
                 return
 
             old_score: float = self.trust_scores[ip_address]
-            new_score: float = min(1.0, old_score + 0.02)
+            new_score: float = min(1.0, old_score + self.recovery_step)
             self.trust_scores[ip_address] = new_score
 
     def get_all_trust_scores(self) -> Dict[str, float]:

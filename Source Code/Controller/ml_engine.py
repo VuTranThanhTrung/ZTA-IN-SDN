@@ -4,6 +4,8 @@ import numpy as np
 import pandas as pd
 import joblib
 
+DEFAULT_MODEL_FILENAME = "rf_model_multiclass_group_safe.pkl"
+
 class MLDetectionEngine:
     """
     MLDetectionEngine loads a pre-trained Random Forest model

@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../E
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import switch
-from ml_engine import MLDetectionEngine
+from ml_engine import DEFAULT_MODEL_FILENAME, MLDetectionEngine
 from policy_engine import DynamicPolicyEngine
 from mitigation_strategies import MitigationExecutor
 from identity_provider import MockAAAServer, IdentityContextAnalyzer
@@ -45,7 +45,7 @@ class ZTASecurityController(switch.SimpleSwitch13):
 
         # Resolve paths dynamically
         base_dir = os.path.dirname(os.path.abspath(__file__))
-        model_path = os.path.join(base_dir, 'rf_model_multiclass.pkl')
+        model_path = os.path.join(base_dir, DEFAULT_MODEL_FILENAME)
         aaa_config = os.path.abspath(os.path.join(base_dir, '../Emulation/aaa_users.json'))
 
         # Initialize modular ZTA components
@@ -101,7 +101,7 @@ class ZTASecurityController(switch.SimpleSwitch13):
         
         # Only inspect routing flows (priority == 1)
         priority_1_flows = [flow for flow in body if flow.priority == 1]
-        
+
         new_entries = []
         for stat in priority_1_flows:
             if 'ipv4_src' not in stat.match or 'ipv4_dst' not in stat.match:
@@ -131,6 +131,11 @@ class ZTASecurityController(switch.SimpleSwitch13):
 
             current_packets = stat.packet_count
             last_packets = self.last_flow_packets.get(flow_id, -1)
+            
+            # Handle flow counter reset (e.g. if the flow was deleted and recreated)
+            if last_packets != -1 and current_packets < last_packets:
+                last_packets = -1
+                
             delta_packets = current_packets - last_packets if last_packets != -1 else current_packets
 
             if last_packets != -1 and delta_packets <= 2:
@@ -216,12 +221,23 @@ class ZTASecurityController(switch.SimpleSwitch13):
                 for ip in list(self.policy_engine.get_all_trust_scores().keys()):
                     self.policy_engine.apply_recovery(ip)
                 self.print_trust_scores_report(stats={}, total_flows=0)
+                
+                # Execute policies for restricted IPs so they can recover/unblock when network is quiet
+                for ip in list(self.mitigation_executor.restricted_ips):
+                    action = self.policy_engine.get_mitigation_action(ip)
+                    if action == "HARD_ISOLATION":
+                        self.mitigation_executor.apply_hard_isolation(ip)
+                    elif action == "RATE_LIMITING":
+                        self.mitigation_executor.apply_rate_limiting(ip)
+                    else:
+                        self.mitigation_executor.remove_restrictions(ip)
                 return
 
             predict_flow_dataset = pd.DataFrame(copied_stats)
 
             # Feature engineering
             flow_counts = predict_flow_dataset.groupby('ip_src').size().to_dict()
+            incoming_counts = predict_flow_dataset.groupby('ip_dst').size().to_dict()
             packet_rates = predict_flow_dataset.groupby('ip_src')['packet_count_per_second'].sum().to_dict()
             unique_ports = predict_flow_dataset.groupby('ip_src')['tp_dst'].nunique().to_dict()
 
@@ -234,11 +250,11 @@ class ZTASecurityController(switch.SimpleSwitch13):
             predictions, probs = self.ml_engine.predict(df_clean)
 
             active_ips = set(predict_flow_dataset['ip_src'].unique())
-            host_risks = {ip: [] for ip in active_ips}
 
             # Logs and statistics trackers
             stats = {name: 0 for name in self.label_names.values()}
             active_flows_summary = {}
+            host_risks = {ip: [] for ip in active_ips}
 
             for idx, pred in enumerate(predictions):
                 ip_src = predict_flow_dataset.iloc[idx]['ip_src']
@@ -246,7 +262,7 @@ class ZTASecurityController(switch.SimpleSwitch13):
                 prob = probs[idx][pred]
 
                 # Minimum confidence threshold adjustment
-                if pred > 0 and prob < 0.40:
+                if pred > 0 and prob < 0.50:
                     pred = 0
                     prob = 1.0 - prob
 
@@ -263,32 +279,31 @@ class ZTASecurityController(switch.SimpleSwitch13):
                 # Query context evaluation risk
                 context_risk = self.identity_analyzer.get_context_risk_score(ip_src)
                 combined_risk = self.identity_analyzer.combine_ml_and_context(prob, context_risk)
-
-                # Assign severity weights
-                if pred in [1, 2]:          # DDoS / DoS
+                if pred in [1, 2]:
                     penalty = 0.3 * combined_risk
-                elif pred == 3:             # Port Scan
+                    host_risks[ip_src].append(penalty)
+                elif pred == 3:
                     penalty = 0.15 * combined_risk
-                else:                       # Benign
-                    penalty = -0.05
-                
-                host_risks[ip_src].append(penalty)
+                    host_risks[ip_src].append(penalty)
 
-            # Update scores
+            safe_hosts = set()
+
             for ip, penalties in host_risks.items():
                 if penalties:
-                    max_penalty = max(penalties)
-                    self.policy_engine.update_trust_score(ip, max_penalty)
+                    self.policy_engine.update_trust_score(ip, max(penalties))
+                else:
+                    safe_hosts.add(ip)
 
-            # Apply recovery
-            for ip in list(self.policy_engine.get_all_trust_scores().keys()):
+            # Apply recovery only when the host had no actionable attack evidence this cycle.
+            for ip in safe_hosts:
                 self.policy_engine.apply_recovery(ip)
 
             # Report results
             self.print_trust_scores_report(stats, len(predictions), active_flows_summary)
 
-            # Execute policies
-            for ip in active_ips:
+            # Execute policies (including restricted IPs so they can be unblocked when they recover)
+            all_target_ips = active_ips.union(self.mitigation_executor.restricted_ips)
+            for ip in all_target_ips:
                 action = self.policy_engine.get_mitigation_action(ip)
                 if action == "HARD_ISOLATION":
                     self.mitigation_executor.apply_hard_isolation(ip)
@@ -313,8 +328,8 @@ class ZTASecurityController(switch.SimpleSwitch13):
             '10.0.0.4': ' (DNS 2)',
             '10.0.0.5': ' (DB 1)',
             '10.0.0.6': ' (DB 2)',
-            '10.0.0.7': '',
-            '10.0.0.8': ''
+            '10.0.0.7': ' (USER)',
+            '10.0.0.8': ' (USER)'
         }
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
