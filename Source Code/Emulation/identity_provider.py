@@ -2,19 +2,11 @@ import json
 import os
 from typing import Dict, Any, Optional
 
-class MockAAAServer:
-    """
-    MockAAAServer simulates an Authentication, Authorization, and Accounting server
-    that manages user identities and device metadata mapped to IP addresses.
-    """
-    def __init__(self, config_path: str, logger: Any = None) -> None:
-        """
-        Initialize the Mock AAA Server.
 
-        Args:
-            config_path: Path to the JSON configuration file containing user data.
-            logger: Optional logger instance.
-        """
+class MockAAAServer:
+    """AAA giả lập: ánh xạ IP sang thông tin người dùng và thiết bị."""
+
+    def __init__(self, config_path: str, logger: Any = None) -> None:
         self.config_path: str = config_path
         self.logger: Any = logger
         self.user_db: Dict[str, Dict[str, Any]] = {}
@@ -22,9 +14,7 @@ class MockAAAServer:
         self.load_config()
 
     def load_config(self) -> None:
-        """
-        Load AAA configuration from config_path or initialize default fallback data.
-        """
+        """Nạp dữ liệu AAA từ JSON, hoặc tạo dữ liệu mặc định nếu file thiếu."""
         if os.path.exists(self.config_path):
             try:
                 with open(self.config_path, 'r', encoding='utf-8') as f:
@@ -38,7 +28,7 @@ class MockAAAServer:
                 if self.logger:
                     self.logger.error("[!] Tải cấu hình AAA từ %s thất bại: %s", self.config_path, str(e))
 
-        # Fallback default emulation data if file is missing
+        # Dữ liệu dự phòng cho topology 8 host trong Mininet.
         if self.logger:
             self.logger.warning("[!] Không tìm thấy file cấu hình AAA %s. Đang nạp cơ sở dữ liệu giả lập dự phòng.", self.config_path)
         
@@ -63,7 +53,7 @@ class MockAAAServer:
             '10.0.0.8': {'os': 'Unknown', 'compliant': False, 'certificates': 'none'}
         }
 
-        # Save default data to create config_path
+        # Ghi lại file JSON để các lần chạy sau dùng cùng dữ liệu.
         try:
             os.makedirs(os.path.dirname(os.path.abspath(self.config_path)), exist_ok=True)
             with open(self.config_path, 'w', encoding='utf-8') as f:
@@ -74,20 +64,12 @@ class MockAAAServer:
 
 
 class IdentityContextAnalyzer:
-    """
-    IdentityContextAnalyzer integrates with a MockAAAServer to provide user context
-    and calculate risk scores for zero-trust policies.
-    """
-    def __init__(self, aaa_server: MockAAAServer, logger: Any = None) -> None:
-        """
-        Initialize the Identity Context Analyzer.
+    """Tính rủi ro ngữ cảnh từ dữ liệu AAA cho chính sách Zero Trust."""
 
-        Args:
-            aaa_server: The AAA Server instance to fetch identity data from.
-            logger: Optional logger instance.
-        """
+    def __init__(self, aaa_server: MockAAAServer, logger: Any = None) -> None:
         self.aaa_server: MockAAAServer = aaa_server
         self.logger: Any = logger
+        # Role càng ít tin cậy thì risk càng cao.
         self.role_risk_scores: Dict[str, float] = {
             'system': 0.25,
             'employee': 0.50,
@@ -95,15 +77,7 @@ class IdentityContextAnalyzer:
         }
 
     def get_user_context(self, ip_address: str) -> Dict[str, Any]:
-        """
-        Get user context associated with the IP address.
-
-        Args:
-            ip_address: The IP address of the host.
-
-        Returns:
-            A JSON-serializable dictionary with user context fields.
-        """
+        """Trả thông tin người dùng gắn với IP."""
         try:
             if ip_address in self.aaa_server.user_db:
                 return self.aaa_server.user_db[ip_address]
@@ -117,15 +91,7 @@ class IdentityContextAnalyzer:
             return {'username': 'unknown', 'role': 'unknown', 'clearance': 'none'}
 
     def get_device_posture(self, ip_address: str) -> Dict[str, Any]:
-        """
-        Get device posture associated with the IP address.
-
-        Args:
-            ip_address: The IP address of the host.
-
-        Returns:
-            A JSON-serializable dictionary with device posture fields.
-        """
+        """Trả trạng thái thiết bị gắn với IP."""
         try:
             if ip_address in self.aaa_server.device_db:
                 return self.aaa_server.device_db[ip_address]
@@ -139,23 +105,12 @@ class IdentityContextAnalyzer:
             return {'os': 'unknown', 'compliant': False, 'certificates': 'none'}
 
     def get_context_risk_score(self, ip_address: str) -> float:
-        """
-        Calculate context risk score from the AAA role assigned to the host.
-
-        Args:
-            ip_address: The IP address of the host.
-
-        Returns:
-            A float value representing the risk score, bounded between 0.0 and 1.0.
-        """
+        """Tính điểm rủi ro ngữ cảnh theo role của host."""
         try:
             user = self.get_user_context(ip_address)
             role = user.get('role', 'guest')
 
-            # Role-only context model:
-            # system = 0.25, employee = 0.50, guest = 0.75.
-            # Device compliance is kept as AAA metadata but is not part of this
-            # simulated scoring formula.
+            # Mô hình hiện tại chỉ dùng role; posture vẫn giữ để phục vụ mở rộng.
             risk: float = self.role_risk_scores.get(role, self.role_risk_scores['guest'])
 
             return max(0.0, min(1.0, risk))
@@ -165,31 +120,12 @@ class IdentityContextAnalyzer:
             return self.role_risk_scores['guest']
 
     def combine_ml_and_context(self, ml_confidence: float, context_risk: float) -> float:
-        """
-        Combine machine learning classification confidence with context risk score.
-
-        Args:
-            ml_confidence: The confidence score from the ML model.
-            context_risk: The context risk score.
-
-        Returns:
-            A combined risk score, bounded between 0.0 and 1.0.
-        """
+        """Kết hợp độ tin cậy ML và rủi ro ngữ cảnh thành combined risk."""
         combined: float = (0.6 * ml_confidence) + (0.4 * context_risk)
         return max(0.0, min(1.0, combined))
 
     def explain_decision(self, ip_address: str, ml_pred: int, combined_risk: float) -> Dict[str, Any]:
-        """
-        Explain the combined trust/risk decision for reporting and audits.
-
-        Args:
-            ip_address: The IP address of the host.
-            ml_pred: The ML predicted class index.
-            combined_risk: The calculated combined risk score.
-
-        Returns:
-            A JSON-serializable dictionary detailing the explanation.
-        """
+        """Tạo dữ liệu giải thích quyết định để log/báo cáo."""
         user = self.get_user_context(ip_address)
 
         return {
