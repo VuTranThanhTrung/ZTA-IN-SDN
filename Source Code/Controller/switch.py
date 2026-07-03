@@ -80,6 +80,9 @@ class SimpleSwitch13(app_manager.RyuApp):
             
         datapath.send_msg(mod)
 
+    def filter_flow_actions(self, datapath, match, actions):
+        return actions
+
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def _packet_in_handler(self, ev):
         # If you hit this you might want to increase
@@ -150,6 +153,7 @@ class SimpleSwitch13(app_manager.RyuApp):
 
                 # verify if we have a valid buffer_id, if yes avoid to send both
                 # flow_mod & packet_out
+                actions = self.filter_flow_actions(datapath, match, actions)
                 if msg.buffer_id != ofproto.OFP_NO_BUFFER:
                     self.add_flow(datapath, 1, match, actions, msg.buffer_id, idle=10, hard=50)
                     return

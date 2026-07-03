@@ -88,6 +88,11 @@ class IdentityContextAnalyzer:
         """
         self.aaa_server: MockAAAServer = aaa_server
         self.logger: Any = logger
+        self.role_risk_scores: Dict[str, float] = {
+            'system': 0.25,
+            'employee': 0.50,
+            'guest': 0.75
+        }
 
     def get_user_context(self, ip_address: str) -> Dict[str, Any]:
         """
@@ -135,7 +140,7 @@ class IdentityContextAnalyzer:
 
     def get_context_risk_score(self, ip_address: str) -> float:
         """
-        Calculate context risk score based on user details and device status.
+        Calculate context risk score from the AAA role assigned to the host.
 
         Args:
             ip_address: The IP address of the host.
@@ -145,29 +150,19 @@ class IdentityContextAnalyzer:
         """
         try:
             user = self.get_user_context(ip_address)
-            device = self.get_device_posture(ip_address)
+            role = user.get('role', 'guest')
 
-            risk: float = 0.0
+            # Role-only context model:
+            # system = 0.25, employee = 0.50, guest = 0.75.
+            # Device compliance is kept as AAA metadata but is not part of this
+            # simulated scoring formula.
+            risk: float = self.role_risk_scores.get(role, self.role_risk_scores['guest'])
 
-            # Compliance check
-            if not device.get('compliant', False):
-                risk += 0.6
-            
-            # Role classification check
-            role = user.get('role', 'unknown')
-            if role == 'unknown':
-                risk += 0.4
-            elif role == 'guest':
-                risk += 0.3
-            elif role == 'employee':
-                risk += 0.1
-
-            # Cap the risk score at 1.0
             return max(0.0, min(1.0, risk))
         except Exception as e:
             if self.logger:
                 self.logger.error("Lỗi khi tính toán điểm rủi ro ngữ cảnh cho %s: %s", ip_address, str(e))
-            return 1.0
+            return self.role_risk_scores['guest']
 
     def combine_ml_and_context(self, ml_confidence: float, context_risk: float) -> float:
         """
@@ -196,13 +191,11 @@ class IdentityContextAnalyzer:
             A JSON-serializable dictionary detailing the explanation.
         """
         user = self.get_user_context(ip_address)
-        device = self.get_device_posture(ip_address)
 
         return {
             'ip_address': ip_address,
             'ml_prediction_class': int(ml_pred),
             'combined_risk': float(combined_risk),
-            'user_role': user.get('role', 'unknown'),
-            'device_compliance': bool(device.get('compliant', False)),
+            'user_role': user.get('role', 'guest'),
             'timestamp': os.times()[4] if hasattr(os, 'times') else 0.0
         }
