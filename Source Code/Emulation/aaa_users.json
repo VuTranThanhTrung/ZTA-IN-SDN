@@ -38,14 +38,14 @@
         "10.0.0.8": {
             "username": "anonymous_user",
             "role": "guest",
-            "clearance": "low"
+            "clearance": "low"                    #Mức quyền truy cập của người dùng
         }
     },
     "devices": {
         "10.0.0.1": {
             "os": "Linux",
-            "compliant": true,
-            "certificates": "valid"
+            "compliant": true,                    #Thiết bị có tuân thủ chính sách bảo mật hay không
+            "certificates": "valid"               #Trạng thái chứng chỉ số của thiết bị
         },
         "10.0.0.2": {
             "os": "Linux",
